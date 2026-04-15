@@ -124,14 +124,14 @@ Running the migration creates:
 ## 1) Create and activate a virtual environment
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
 ## 2) Install dependencies
 
 ```bash
-python -m pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 scrapling install
 ```
 
@@ -166,7 +166,7 @@ The pipeline writes to `maven.scraped_posts` explicitly, so DB writes do not dep
 ## 5) Run the pipeline
 
 ```bash
-python pipeline.py
+python3 pipeline.py
 ```
 
 ## Output behavior

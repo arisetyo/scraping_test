@@ -61,12 +61,13 @@ This repository contains an asynchronous scraping pipeline for Indonesian health
 
 ## Operational expectations
 
+- Always use `python3` instead of `python` for this repository.
 - Always run Python and package-management commands inside the project virtual environment (`.venv`).
 - Before running Python-related commands, verify the virtual environment is active; if not, activate it with `source .venv/bin/activate`.
 - If `.venv` does not exist, create and activate it first:
-	- `python -m venv .venv`
+	- `python3 -m venv .venv`
 	- `source .venv/bin/activate`
-- Use `python -m pip` instead of bare `pip` so dependencies are installed into the active virtual environment.
+- Use `python3 -m pip` instead of bare `pip` so dependencies are installed into the active virtual environment.
 - Avoid global Python package installs for this repository.
 - Assume first run may need X login and cookie creation (`x_cookies.json`).
 - Assume web sources may change markup over time; prefer resilient extraction updates.
