@@ -4,7 +4,7 @@ Combines twikit (X/Twitter) + Scrapling (web sources) for Indonesian keyword mon
 Supports dual output: JSONL files and/or PostgreSQL.
 
 Install:
-    pip install twikit scrapling[fetchers] aiofiles asyncpg python-dotenv
+    python -m pip install twikit scrapling[fetchers] aiofiles asyncpg python-dotenv
     scrapling install
 
 Usage:
@@ -297,6 +297,7 @@ class PostgresWriter:
     Writes scraped posts to PostgreSQL using asyncpg connection pool.
     Uses INSERT ... ON CONFLICT DO NOTHING for safe idempotent upserts —
     re-running the pipeline will never create duplicate rows.
+    Writes to maven.scraped_posts explicitly to avoid search_path dependency.
     """
 
     def __init__(self, config: PipelineConfig):
@@ -319,7 +320,7 @@ class PostgresWriter:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO scraped_posts (
+                INSERT INTO maven.scraped_posts (
                     source, source_type, keyword, post_id, text, url,
                     author, created_at, lang, raw, scraped_at
                 ) VALUES (

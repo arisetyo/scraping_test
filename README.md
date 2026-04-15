@@ -91,7 +91,7 @@ The runtime flow in `pipeline.py` is:
 - `FileWriter`
   - Appends JSON objects to daily files in `output/`.
 - `PostgresWriter`
-  - Inserts rows into `scraped_posts`.
+  - Inserts rows into `maven.scraped_posts`.
   - Uses `ON CONFLICT (source, post_id) DO NOTHING` for idempotent writes.
 - `CompositeWriter`
   - Sends every record to all active writers.
@@ -131,7 +131,7 @@ source .venv/bin/activate
 ## 2) Install dependencies
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 scrapling install
 ```
 
@@ -160,6 +160,8 @@ psql "$DATABASE_URL" -f migrate.sql
 ```
 
 If your DB role does not default to `search_path = maven, public`, query objects with schema-qualified names (for example `maven.scraped_posts`).
+
+The pipeline writes to `maven.scraped_posts` explicitly, so DB writes do not depend on session search_path.
 
 ## 5) Run the pipeline
 
