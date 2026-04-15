@@ -1,17 +1,18 @@
 """
 Social Media Scraping Pipeline
-Combines twikit (X/Twitter) + Scrapling (web sources) for Indonesian keyword monitoring.
+Combines twikit (X/Twitter) + Scrapling (web sources) for generic keyword monitoring.
 Supports dual output: JSONL files and/or PostgreSQL.
 
 Install:
-    python -m pip install twikit scrapling[fetchers] aiofiles asyncpg python-dotenv
+    python3 -m pip install twikit scrapling[fetchers] aiofiles asyncpg python-dotenv
     scrapling install
 
 Usage:
     Copy .env.example to .env, fill in your credentials, then:
-    python pipeline.py
+    python3 pipeline.py
 """
 
+import argparse
 import asyncio
 import json
 import logging
@@ -42,18 +43,57 @@ logging.basicConfig(
 logger = logging.getLogger("pipeline")
 
 
+def _parse_keywords(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _keywords_from_env() -> list[str]:
+    # If KEYWORDS is not set, use broad generic defaults.
+    return _parse_keywords(os.getenv("KEYWORDS")) or ["news", "policy", "technology"]
+
+
+def _int_from_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if not raw:
+        return default
+
+    try:
+        parsed = int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r. Falling back to default %d.", name, raw, default)
+        return default
+
+    if parsed <= 0:
+        logger.warning("Non-positive %s=%r. Falling back to default %d.", name, raw, default)
+        return default
+
+    return parsed
+
+
+def _source_from_env() -> str:
+    raw = (os.getenv("SOURCE") or "all").strip().lower()
+    if raw in {"all", "x", "web"}:
+        return raw
+
+    logger.warning("Invalid SOURCE=%r. Falling back to 'all'.", raw)
+    return "all"
+
+
 @dataclass
 class PipelineConfig:
-    # Keywords to search for (Bahasa Indonesia)
-    keywords: list[str] = field(default_factory=lambda: ["obat", "apotek", "farmasi"])
+    # Keywords to search for (loaded from KEYWORDS env, with generic defaults)
+    keywords: list[str] = field(default_factory=_keywords_from_env)
 
     # X / twikit
     x_username: str = field(default_factory=lambda: os.getenv("X_USERNAME", ""))
     x_email: str = field(default_factory=lambda: os.getenv("X_EMAIL", ""))
     x_password: str = field(default_factory=lambda: os.getenv("X_PASSWORD", ""))
     x_cookie_file: str = "x_cookies.json"
-    x_max_results: int = 50          # per keyword per run
+    x_max_results: int = field(default_factory=lambda: _int_from_env("X_MAX_RESULTS", 50))
     x_language: str = "id"           # Indonesian
+    source: str = field(default_factory=_source_from_env)  # all | x | web
 
     # PostgreSQL
     db_dsn: str = field(default_factory=lambda: os.getenv("DATABASE_URL", ""))
@@ -64,15 +104,15 @@ class PipelineConfig:
     # Web sources (Scrapling)
     web_sources: list[dict] = field(default_factory=lambda: [
         {
-            "name": "detik_health",
-            "url": "https://health.detik.com/",
+            "name": "detik_news",
+            "url": "https://news.detik.com/",
             "post_selector": "article.list-content__item",
             "title_selector": "h3.media__title a::text",
             "link_selector": "h3.media__title a::attr(href)",
         },
         {
-            "name": "kompas_health",
-            "url": "https://health.kompas.com/",
+            "name": "kompas_news",
+            "url": "https://www.kompas.com/",
             "post_selector": "div.articleList article",
             "title_selector": "h3 a::text",
             "link_selector": "h3 a::attr(href)",
@@ -81,7 +121,7 @@ class PipelineConfig:
     ])
 
     # File output (runs alongside DB if both are configured)
-    output_dir: str = "output"
+    output_dir: str = field(default_factory=lambda: os.getenv("OUTPUT_DIR", "output"))
     output_format: str = "jsonl"     # "jsonl" or "json"
 
     # Rate limiting (seconds)
@@ -190,7 +230,7 @@ class XScraper:
 
 class WebScraper:
     """
-    Scrapes Indonesian health/news websites for keyword-matching articles
+    Scrapes websites for keyword-matching articles
     using Scrapling's AsyncFetcher with TLS fingerprint impersonation.
     """
 
@@ -424,11 +464,17 @@ class ScrapingPipeline:
         await self.writer.setup()
 
         try:
-            # Run X and web scraping concurrently
-            await asyncio.gather(
-                self.run_x(),
-                self.run_web(),
-            )
+            tasks = []
+            if self.config.source in ("all", "x"):
+                tasks.append(self.run_x())
+            if self.config.source in ("all", "web"):
+                tasks.append(self.run_web())
+
+            if not tasks:
+                logger.warning("No scraping tasks selected for source=%s", self.config.source)
+            else:
+                # Run selected source scrapers concurrently.
+                await asyncio.gather(*tasks)
         finally:
             await self.writer.close()
 
@@ -448,13 +494,53 @@ class ScrapingPipeline:
 # ---------------------------------------------------------------------------
 
 async def main():
-    config = PipelineConfig(
-        keywords=["obat", "apotek", "farmasi", "resep dokter", "efek samping"],
-        # Credentials and DATABASE_URL are loaded automatically from .env
-        x_max_results=100,
-        output_dir="output",
-        output_format="jsonl",
+    parser = argparse.ArgumentParser(
+        description="Scrape X + web sources with keyword filtering and dual outputs."
     )
+    parser.add_argument(
+        "--keywords",
+        type=str,
+        help="Comma-separated keywords. If omitted, falls back to KEYWORDS env.",
+    )
+    parser.add_argument(
+        "--x-max-results",
+        type=int,
+        help="Max X posts per keyword. If omitted, falls back to X_MAX_RESULTS env.",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        choices=["all", "x", "web"],
+        help="Sources to run: all, x, or web. If omitted, falls back to SOURCE env.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        help="Output directory for file output. If omitted, falls back to OUTPUT_DIR env.",
+    )
+    args = parser.parse_args()
+
+    config = PipelineConfig()
+
+    if args.keywords is not None:
+        cli_keywords = _parse_keywords(args.keywords)
+        if not cli_keywords:
+            parser.error("--keywords was provided but no valid keywords were parsed")
+        config.keywords = cli_keywords
+
+    if args.x_max_results is not None:
+        if args.x_max_results <= 0:
+            parser.error("--x-max-results must be a positive integer")
+        config.x_max_results = args.x_max_results
+
+    if args.source is not None:
+        config.source = args.source
+
+    if args.output_dir is not None:
+        cli_output_dir = args.output_dir.strip()
+        if not cli_output_dir:
+            parser.error("--output-dir must not be empty")
+        config.output_dir = cli_output_dir
 
     pipeline = ScrapingPipeline(config)
     await pipeline.run()

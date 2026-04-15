@@ -1,6 +1,6 @@
 # Scraping Test Pipeline
 
-This project is an asynchronous Python scraping pipeline for monitoring Indonesian health-related keywords across:
+This project is an asynchronous Python scraping pipeline for monitoring generic keywords across:
 
 - X (Twitter), via Twikit
 - News/web sources, via Scrapling
@@ -169,26 +169,45 @@ The pipeline writes to `maven.scraped_posts` explicitly, so DB writes do not dep
 python3 pipeline.py
 ```
 
+You can also override runtime settings via CLI:
+
+```bash
+python3 pipeline.py --keywords "ai,market,startup" --x-max-results 150 --source all --output-dir output
+```
+
 ## Output behavior
 
 - File output is always active.
 - Files are written under `output/` and grouped by source and UTC date, for example:
   - `output/x_YYYYMMDD.jsonl`
-  - `output/detik_health_YYYYMMDD.jsonl`
+  - `output/detik_news_YYYYMMDD.jsonl`
+  - `output/kompas_news_YYYYMMDD.jsonl`
 - PostgreSQL output is active only when `DATABASE_URL` is set.
 
 ## Configuration notes
 
 Current code behavior in `pipeline.py`:
 
-- Keywords and defaults are hardcoded in `main()`:
-  - `keywords=["obat", "apotek", "farmasi", "resep dokter", "efek samping"]`
-  - `x_max_results=100`
-- Environment variables currently control:
+- CLI parameters:
+  - `--keywords` (comma-separated)
+  - `--x-max-results` (positive integer)
+  - `--source` (`all`, `x`, or `web`)
+  - `--output-dir` (non-empty path)
+- Environment variables:
+  - `KEYWORDS` (comma-separated)
+  - `X_MAX_RESULTS` (positive integer)
+  - `SOURCE` (`all`, `x`, or `web`)
+  - `OUTPUT_DIR` (file output directory)
   - X credentials (`X_USERNAME`, `X_EMAIL`, `X_PASSWORD`)
   - DB enablement/connection (`DATABASE_URL`)
 
-`.env.example` includes additional optional keys for future overrides, but these are not fully wired into runtime parsing yet.
+Configuration precedence:
+
+1. CLI arguments (highest priority)
+2. Environment variables (`KEYWORDS`, `X_MAX_RESULTS`, `SOURCE`, `OUTPUT_DIR`)
+3. Built-in defaults in code (generic fallback keywords, `50` max results, source=`all`, output directory=`output`)
+
+If `--keywords` is provided but parses to an empty list, the command exits with an error.
 
 ## Extending sources
 

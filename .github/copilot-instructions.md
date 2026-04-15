@@ -6,7 +6,7 @@ description: "Workspace instructions for the Python scraping pipeline using Twik
 
 ## Project purpose
 
-This repository contains an asynchronous scraping pipeline for Indonesian health-related monitoring.
+This repository contains an asynchronous scraping pipeline for generic keyword monitoring.
 
 - X source is scraped via Twikit.
 - Web/news sources are scraped via Scrapling.
