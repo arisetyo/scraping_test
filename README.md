@@ -175,6 +175,38 @@ You can also override runtime settings via CLI:
 python3 pipeline.py --keywords "ai,market,startup" --x-max-results 150 --source all --output-dir output
 ```
 
+### Execution examples
+
+Run with environment defaults (`KEYWORDS`, `X_MAX_RESULTS`, `SOURCE`, `OUTPUT_DIR` from `.env`):
+
+```bash
+python3 pipeline.py
+```
+
+Run X only (skip web scraping):
+
+```bash
+python3 pipeline.py --source x
+```
+
+Run web sources only (skip X scraping):
+
+```bash
+python3 pipeline.py --source web --keywords "economy,politics,startup"
+```
+
+Run with custom X volume and output folder:
+
+```bash
+python3 pipeline.py --keywords "ai,cybersecurity" --x-max-results 200 --output-dir output_runs/apr15
+```
+
+Run everything with explicit CLI overrides:
+
+```bash
+python3 pipeline.py --keywords "finance,technology,education" --x-max-results 120 --source all --output-dir output
+```
+
 ## Output behavior
 
 - File output is always active.
