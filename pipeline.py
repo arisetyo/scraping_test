@@ -169,18 +169,38 @@ class XScraper:
 
         if cookie_path.exists():
             logger.info("X: loading saved cookies from %s", cookie_path)
-            self.client.load_cookies(str(cookie_path))
-            self._authenticated = True
-        else:
-            logger.info("X: logging in as %s", self.config.x_username)
+            try:
+                self.client.load_cookies(str(cookie_path))
+                self._authenticated = True
+                return
+            except Exception as e:
+                logger.warning("X: failed to load cookies from %s: %s", cookie_path, e)
+                logger.info("X: falling back to credential login")
+
+        if not self.config.x_username or not self.config.x_email or not self.config.x_password:
+            logger.error(
+                "X: login credentials missing. Set X_USERNAME, X_EMAIL, and X_PASSWORD in environment."
+            )
+            raise RuntimeError("X authentication failed: missing credentials")
+
+        logger.info("X: logging in as %s", self.config.x_username)
+        try:
             await self.client.login(
                 auth_info_1=self.config.x_username,
                 auth_info_2=self.config.x_email,
                 password=self.config.x_password,
             )
+        except Exception as e:
+            logger.error("X: login failed for %s: %s", self.config.x_username, e)
+            raise RuntimeError("X authentication failed: login attempt unsuccessful") from e
+
+        try:
             self.client.save_cookies(str(cookie_path))
             logger.info("X: cookies saved to %s", cookie_path)
-            self._authenticated = True
+        except Exception as e:
+            logger.warning("X: login succeeded but failed to save cookies to %s: %s", cookie_path, e)
+
+        self._authenticated = True
 
     async def search(self, keyword: str) -> AsyncIterator[ScrapedPost]:
         if not self._authenticated:
@@ -475,6 +495,9 @@ class ScrapingPipeline:
             else:
                 # Run selected source scrapers concurrently.
                 await asyncio.gather(*tasks)
+        except Exception as e:
+            logger.error("Pipeline failed: %s", e)
+            raise
         finally:
             await self.writer.close()
 
