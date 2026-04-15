@@ -102,19 +102,22 @@ The runtime flow in `pipeline.py` is:
 
 Running the migration creates:
 
+- Schema
+  - `maven` (all project database objects are created under this schema)
+
 - Extensions
   - `pgcrypto` (UUID generation)
   - `pg_trgm` (fuzzy text search)
 - Enum
-  - `source_type_enum` with values `social` and `web`
+  - `maven.source_type_enum` with values `social` and `web`
 - Main table
-  - `scraped_posts`
+  - `maven.scraped_posts`
   - Unique constraint on `(source, post_id)` for deduplication
 - Indexes
   - For keyword/time filtering, source filtering, unanalyzed queue, trigram search, and JSONB metadata queries
 - Views
-  - `pending_analysis`: rows not yet sentiment-labeled
-  - `sentiment_summary`: aggregated sentiment stats by keyword and source
+  - `maven.pending_analysis`: rows not yet sentiment-labeled
+  - `maven.sentiment_summary`: aggregated sentiment stats by keyword and source
 
 ## Setup
 
@@ -155,6 +158,8 @@ If using DB output, run:
 ```bash
 psql "$DATABASE_URL" -f migrate.sql
 ```
+
+If your DB role does not default to `search_path = maven, public`, query objects with schema-qualified names (for example `maven.scraped_posts`).
 
 ## 5) Run the pipeline
 
@@ -229,6 +234,7 @@ Recommended usage:
    - `sentiment_score`
    - `analyzed_at`
 3. Query `sentiment_summary` for dashboards or reporting.
+  - If your session search path does not include `maven`, query `maven.sentiment_summary`.
 
 ## Troubleshooting
 
