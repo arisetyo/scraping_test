@@ -18,11 +18,13 @@ import json
 import logging
 import os
 import random
+import sys
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
+from urllib.parse import urljoin
 
 import aiofiles
 import asyncpg
@@ -36,11 +38,63 @@ load_dotenv()
 # Config
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+class ColorLogFormatter(logging.Formatter):
+    RESET = "\033[0m"
+    LEVEL_COLORS = {
+        logging.DEBUG: "\033[36m",     # cyan
+        logging.INFO: "\033[32m",      # green
+        logging.WARNING: "\033[33m",   # yellow
+        logging.ERROR: "\033[31m",     # red
+        logging.CRITICAL: "\033[35m",  # magenta
+    }
+
+    def __init__(self, use_color: bool):
+        super().__init__(fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        self.use_color = use_color
+
+    def format(self, record: logging.LogRecord) -> str:
+        if self.use_color:
+            original_levelname = record.levelname
+            color = self.LEVEL_COLORS.get(record.levelno, "")
+            record.levelname = f"{color}{original_levelname}{self.RESET}"
+            try:
+                return super().format(record)
+            finally:
+                record.levelname = original_levelname
+        return super().format(record)
+
+
+def configure_logging() -> None:
+    use_color = sys.stderr.isatty() and not os.getenv("NO_COLOR")
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Reset inherited/default handlers so formatting is consistent.
+    for handler in list(root_logger.handlers):
+        root_logger.removeHandler(handler)
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColorLogFormatter(use_color=use_color))
+    root_logger.addHandler(handler)
+
+
+configure_logging()
 logger = logging.getLogger("pipeline")
+
+
+def _friendly_error_message(error: Exception) -> str:
+    text = str(error)
+
+    # Twikit occasionally breaks when X changes internal web transaction logic.
+    if "Couldn't get KEY_BYTE indices" in text:
+        return (
+            "X login failed because X changed an internal request format (KEY_BYTE indices). "
+            "Try updating twikit, refresh x_cookies.json, and retry. "
+            "If you need data now, run with '--source web' to skip X temporarily."
+        )
+
+    return text or error.__class__.__name__
 
 
 def _parse_keywords(raw: str | None) -> list[str]:
@@ -113,9 +167,30 @@ class PipelineConfig:
         {
             "name": "kompas_news",
             "url": "https://www.kompas.com/",
-            "post_selector": "div.articleList article",
-            "title_selector": "h3 a::text",
-            "link_selector": "h3 a::attr(href)",
+            "post_selector": "a[href*='/read/']",
+            "title_selector": "::text",
+            "link_selector": "::attr(href)",
+        },
+        {
+            "name": "liputan6_news",
+            "url": "https://www.liputan6.com/",
+            "post_selector": "a[href*='/read/']",
+            "title_selector": "::text",
+            "link_selector": "::attr(href)",
+        },
+        {
+            "name": "antara_news",
+            "url": "https://www.antaranews.com/",
+            "post_selector": "h3 a[href*='/berita/']",
+            "title_selector": "::text",
+            "link_selector": "::attr(href)",
+        },
+        {
+            "name": "suara_news",
+            "url": "https://www.suara.com/",
+            "post_selector": "a[href*='/read/']",
+            "title_selector": "::attr(title)",
+            "link_selector": "::attr(href)",
         },
         # Add more sources here
     ])
@@ -145,7 +220,7 @@ class ScrapedPost:
     created_at: str = ""
     lang: str = "id"
     raw: dict = field(default_factory=dict)
-    scraped_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    scraped_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 # ---------------------------------------------------------------------------
@@ -191,8 +266,9 @@ class XScraper:
                 password=self.config.x_password,
             )
         except Exception as e:
-            logger.error("X: login failed for %s: %s", self.config.x_username, e)
-            raise RuntimeError("X authentication failed: login attempt unsuccessful") from e
+            friendly = _friendly_error_message(e)
+            logger.error("X: login failed for %s: %s", self.config.x_username, friendly)
+            raise RuntimeError(f"X authentication failed: {friendly}")
 
         try:
             self.client.save_cookies(str(cookie_path))
@@ -279,12 +355,16 @@ class WebScraper:
         posts = page.css(source["post_selector"])
         logger.info("Web: found %d items on %s", len(posts), name)
 
+        matched_count = 0
+
         for post in posts:
             title_el = post.css(source["title_selector"])
             link_el = post.css(source["link_selector"])
 
-            title = title_el.get("") if title_el else ""
+            title = title_el.get("").strip() if title_el else ""
             link = link_el.get("") if link_el else ""
+            if link:
+                link = urljoin(url, link)
 
             if not title:
                 continue
@@ -297,6 +377,8 @@ class WebScraper:
             if not matched_keyword:
                 continue
 
+            matched_count += 1
+
             yield ScrapedPost(
                 source=name,
                 source_type="web",
@@ -305,6 +387,19 @@ class WebScraper:
                 text=title,
                 url=link,
                 raw={"source_url": url},
+            )
+
+        logger.info(
+            "Web: matched %d/%d items on %s for keywords %s",
+            matched_count,
+            len(posts),
+            name,
+            keywords,
+        )
+        if matched_count == 0:
+            logger.warning(
+                "Web: no keyword matches on %s. Try broader keywords or inspect selectors.",
+                name,
             )
 
         await self._random_delay()
@@ -332,7 +427,7 @@ class FileWriter:
         self._files: dict[str, aiofiles.threadpool.AsyncTextIOWrapper] = {}
 
     def _filepath(self, source: str) -> Path:
-        ts = datetime.utcnow().strftime("%Y%m%d")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d")
         ext = "jsonl" if self.config.output_format == "jsonl" else "json"
         return self.output_dir / f"{source}_{ts}.{ext}"
 
@@ -468,9 +563,12 @@ class ScrapingPipeline:
         self._stats[post.source_type] += 1
 
     async def run_x(self):
-        for keyword in self.config.keywords:
-            async for post in self.x_scraper.search(keyword):
-                await self._process(post)
+        try:
+            for keyword in self.config.keywords:
+                async for post in self.x_scraper.search(keyword):
+                    await self._process(post)
+        except Exception as e:
+            logger.error("X: scraping stopped for this run: %s", _friendly_error_message(e))
 
     async def run_web(self):
         for source in self.config.web_sources:
@@ -502,9 +600,16 @@ class ScrapingPipeline:
             await self.writer.close()
 
         elapsed = time.monotonic() - start
+        logger.info("Pipeline done in %.1fs", elapsed)
         logger.info(
-            "Pipeline done in %.1fs | Social posts: %d | Web posts: %d | Duplicates skipped: %d",
-            elapsed,
+            "\n"
+            "+----------------------+--------+\n"
+            "| Metric               | Value  |\n"
+            "+----------------------+--------+\n"
+            "| Social posts         | %-6d |\n"
+            "| Web posts            | %-6d |\n"
+            "| Duplicates skipped   | %-6d |\n"
+            "+----------------------+--------+",
             self._stats["social"],
             self._stats["web"],
             self._stats["duplicates"],
@@ -570,4 +675,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error("Fatal pipeline error: %s", _friendly_error_message(e))
+        sys.exit(1)

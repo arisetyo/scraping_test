@@ -243,6 +243,14 @@ If `--keywords` is provided but parses to an empty list, the command exits with 
 
 ## Extending sources
 
+Default Indonesian web sources currently configured in `PipelineConfig.web_sources`:
+
+- `detik_news` → `https://news.detik.com/`
+- `kompas_news` → `https://www.kompas.com/`
+- `liputan6_news` → `https://www.liputan6.com/`
+- `antara_news` → `https://www.antaranews.com/`
+- `suara_news` → `https://www.suara.com/`
+
 To add another website source, append a config entry to `PipelineConfig.web_sources` with:
 
 - `name`
@@ -293,8 +301,11 @@ Recommended usage:
 
 - X login/auth issues
   - Remove `x_cookies.json` and rerun to refresh session cookies.
+  - If you see `Couldn't get KEY_BYTE indices`, this usually means X changed an internal request format used by Twikit.
+  - Update `twikit`, refresh cookies, and retry. As a temporary workaround, run with `--source web`.
 - Empty web results
   - Check whether target site HTML or CSS selectors changed.
+  - If logs show `matched 0/N items`, scraping worked but no titles matched your keywords. Try broader keywords.
 - No DB writes
   - Ensure `DATABASE_URL` is set and `migrate.sql` has been applied.
 - Slow runs or request blocks
