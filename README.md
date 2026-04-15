@@ -204,6 +204,23 @@ If this project expands from keyword monitoring into full social listening, a na
 3. Add robust crawl-state persistence and retry orchestration.
 4. Feed collected text into the existing sentiment stage and dashboard views.
 
+## Copilot skill in this repo
+
+This repository includes a local Scrapling skill for GitHub Copilot Chat:
+
+- Location: `.github/skills/scrapling-official/SKILL.md`
+- Purpose: provide best-practice guidance for choosing Scrapling fetch modes, spiders, and anti-bot handling during coding tasks.
+
+Recommended usage:
+
+1. Ask Copilot to use the Scrapling skill when working on scraping/crawling changes.
+2. Follow the escalation flow from the skill:
+  - `Fetcher` / `get` for simple pages
+  - `DynamicFetcher` / `fetch` for JS-heavy pages
+  - `StealthyFetcher` / `stealthy-fetch` for protected pages
+  - `Spider` for multi-page crawling
+3. When using Scrapling CLI extraction commands, include `--ai-targeted`.
+
 ## Typical use in a larger data workflow
 
 1. Scrape and store raw posts/articles with this project.

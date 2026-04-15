@@ -38,6 +38,17 @@ This repository contains an asynchronous scraping pipeline for Indonesian health
 	- `python-dotenv`
 - If introducing new libraries, justify the need and keep setup simple.
 
+## Skill integration
+
+- A workspace skill is available at `.github/skills/scrapling-official/SKILL.md`.
+- Use this skill whenever tasks involve web scraping, crawling, anti-bot bypass, dynamic page extraction, or Scrapling CLI usage.
+- Prefer the skill's escalation path when choosing fetch methods:
+	- Fetcher/get for simple pages
+	- Dynamic/fetch for JS-rendered pages
+	- Stealthy/stealthy-fetch for protected pages
+	- Spider for multi-page crawling
+- For Scrapling CLI commands, include `--ai-targeted` as recommended by the skill.
+
 ## Database guidance
 
 - Schema is managed by `migrate.sql`.
