@@ -5,6 +5,10 @@ This project is an asynchronous Python scraping pipeline for monitoring generic 
 - X (Twitter), via Twikit
 - News/web sources, via Scrapling
 
+It also includes an alternative X-only pipeline using Playwright via Scrapling's `StealthyFetcher`:
+
+- X (Twitter), via browser rendering + cookies (`pipeline_x_playwright.py`)
+
 The pipeline can write results to:
 
 - JSONL files (always enabled)
@@ -48,6 +52,10 @@ So the current implementation is a focused page fetch + CSS extraction flow, whi
 - `pipeline.py`
   - Main application.
   - Contains all runtime components: config, scrapers, writers, orchestration, and entrypoint.
+- `pipeline_x_playwright.py`
+  - Alternative X-only pipeline that uses Playwright through Scrapling `StealthyFetcher`.
+  - Uses browser-exported cookies (`x_cookies.json`) instead of Twikit login flow.
+  - Keeps the same output behavior (JSONL always, PostgreSQL when `DATABASE_URL` is set).
 - `migrate.sql`
   - Database migration for PostgreSQL.
   - Creates schema objects, indexes, and helper views used by downstream analysis/reporting.
@@ -84,6 +92,8 @@ The runtime flow in `pipeline.py` is:
 - `XScraper`
   - Authenticates using Twikit.
   - First run logs in with credentials and saves cookies to `x_cookies.json`.
+  - Use this command in the browser inspector's console: `copy(JSON.stringify(Object.fromEntries(document.cookie.split('; ').map(c => c.split(/=(.*)/)))))`, to copy the cookie values needed in `x_cookies.json`.
+  - Don't forget the `"auth_token"` value in `x_cookies.json`.
   - Next runs reuse cookies for more stable sessions.
 - `WebScraper`
   - Fetches configured sites with Scrapling and CSS selectors.
@@ -207,6 +217,62 @@ Run everything with explicit CLI overrides:
 python3 pipeline.py --keywords "finance,technology,education" --x-max-results 120 --source all --output-dir output
 ```
 
+## Playwright-based X pipeline
+
+Use this when Twikit is blocked by X internal API changes (for example `KEY_BYTE` / `ClientTransaction` errors), or when you prefer browser rendering for X collection.
+
+Script:
+
+- `pipeline_x_playwright.py`
+
+What it does:
+
+- Opens X search pages in a headless browser using Scrapling `StealthyFetcher` (Playwright-based).
+- Loads cookies from `x_cookies.json`.
+- Scrolls and extracts tweet cards from rendered DOM.
+- Writes to JSONL and optional PostgreSQL (`maven.scraped_posts`) with dedupe semantics.
+
+### Cookie requirement
+
+Create `x_cookies.json` in project root as a flat JSON object:
+
+```json
+{
+  "auth_token": "...",
+  "ct0": "...",
+  "twid": "..."
+}
+```
+
+At minimum, `auth_token` and `ct0` must be present for authenticated access.
+
+### Run commands
+
+Run with defaults from `.env`:
+
+```bash
+python3 pipeline_x_playwright.py
+```
+
+Run with explicit keywords:
+
+```bash
+python3 pipeline_x_playwright.py --keywords "economy,politics,startup"
+```
+
+Run with custom volume/output/cookie file:
+
+```bash
+python3 pipeline_x_playwright.py --keywords "ai,market" --x-max-results 120 --output-dir output_runs/apr17 --cookie-file x_cookies.json
+```
+
+### CLI options
+
+- `--keywords` (comma-separated)
+- `--x-max-results` (positive integer)
+- `--output-dir` (non-empty path)
+- `--cookie-file` (path to cookie JSON file)
+
 ## Output behavior
 
 - File output is always active.
@@ -302,7 +368,13 @@ Recommended usage:
 - X login/auth issues
   - Remove `x_cookies.json` and rerun to refresh session cookies.
   - If you see `Couldn't get KEY_BYTE indices`, this usually means X changed an internal request format used by Twikit.
-  - Update `twikit`, refresh cookies, and retry. As a temporary workaround, run with `--source web`.
+  - Update `twikit`, refresh cookies, and retry.
+  - If Twikit remains broken, use `python3 pipeline_x_playwright.py` as the X fallback pipeline.
+- Playwright pipeline DB insert error on `created_at`
+  - If `created_at` arrives as ISO text (for example `...Z`), ensure it is parsed to datetime before PostgreSQL insert.
+- Playwright pipeline finds too few tweets
+  - Increase `--x-max-results` and rerun.
+  - Refresh `x_cookies.json` if timeline content appears limited due to session state.
 - Empty web results
   - Check whether target site HTML or CSS selectors changed.
   - If logs show `matched 0/N items`, scraping worked but no titles matched your keywords. Try broader keywords.
